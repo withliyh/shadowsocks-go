@@ -14,9 +14,12 @@ import (
 	"path"
 	"strconv"
 	"time"
+	"os/signal"
+	"syscall"
 )
 
 var debug ss.DebugLog
+var dispatcher *ss.Dispatcher
 
 var (
 	errAddrType      = errors.New("socks addr type not supported")
@@ -256,6 +259,13 @@ func connectToServer(serverId int, rawaddr []byte, addr string) (remote *ss.Conn
 // some probability according to its fail count, so we can discover recovered
 // servers.
 func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) {
+	// if the user specifies the server user a configuration file, priority.
+	if dispatcher != nil {
+		if serverIndex := dispatcher.GetServerIndex(addr); serverIndex != -1 {
+			remote, err = connectToServer(serverIndex, rawaddr, addr)
+			return
+		}
+	}
 	const baseFailCnt = 20
 	n := len(servers.srvCipher)
 	skipped := make([]int, 0)
@@ -327,6 +337,24 @@ func handleConnection(conn net.Conn) {
 	ss.PipeThenClose(remote, conn)
 	closed = true
 	debug.Println("closed connection to", addr)
+}
+
+func updateDispatcherConfig() {
+	debug.Println("loading dispatcher config")
+	dispatcher, _= ss.ParseDispatcherConfig(path.Join(os.Args[0], "dispatcher.json"))
+}
+func waitSignal() {
+	var sigChan = make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP)
+	for sig := range sigChan {
+		if sig == syscall.SIGHUP {
+			updateDispatcherConfig()
+		} else {
+			// is this going to happen?
+			log.Printf("caught signal %v, exit", sig)
+			os.Exit(0)
+		}
+	}
 }
 
 func run(listenAddr string) {
@@ -417,6 +445,8 @@ func main() {
 	}
 
 	parseServerConfig(config)
+	updateDispatcherConfig()
+	go waitSignal()
 
 	run(cmdLocal + ":" + strconv.Itoa(config.LocalPort))
 }

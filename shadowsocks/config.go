@@ -37,6 +37,43 @@ type Config struct {
 	ServerPassword [][]string `json:"server_password"`
 }
 
+type Dispatcher struct {
+	SwitchTable map[string]int `json:"dispatcher"`
+}
+
+func (dispatcher *Dispatcher) GetServerIndex(addr string) (idx int) {
+	if dispatcher.SwitchTable == nil {
+		return -1
+	}
+	host := strings.Split(addr, ":")
+	if len(host) > 0 {
+		addr = host[0]
+	}
+	idx, ok := dispatcher.SwitchTable[addr]
+	if !ok {
+		return -1
+	}
+	return
+}
+
+func ParseDispatcherConfig(path string) (dispatcher *Dispatcher, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	dispatcher = &Dispatcher{}
+	if err = json.Unmarshal(data, dispatcher); err != nil {
+		return nil, err
+	}
+
+	return
+}
+
 var readTimeout time.Duration
 
 func (config *Config) GetServerArray() []string {

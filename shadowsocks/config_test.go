@@ -106,23 +106,4 @@ func TestParseConfigEmpty(t *testing.T) {
 	}
 }
 
-func TestGetServerIndex(t *testing.T) {
-	dispatcher, err := ParseDispatcherConfig("testdata/dispatcher.json")
 
-	if err != nil {
-		t.Fatal("error parsing dispatcher config:",  err)
-	}
-
-	if idx := dispatcher.GetServerIndex("baidu.com"); idx != -1 {
-		t.Errorf("no exist item should be -1:%d", idx)
-	}
-
-	if idx := dispatcher.GetServerIndex("youku.com"); idx != 0 {
-		t.Error("youku.com should be 0")
-	}
-
-	if idx := dispatcher.GetServerIndex("qiyi.com"); idx != 1 {
-		t.Error("qiyi.com should be 1")
-	}
-
-}

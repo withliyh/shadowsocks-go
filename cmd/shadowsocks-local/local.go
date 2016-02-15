@@ -263,9 +263,13 @@ func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) 
 	if dispatcher != nil {
 		if serverIndex := dispatcher.GetServerIndex(addr); serverIndex != -1 {
 			remote, err = connectToServer(serverIndex, rawaddr, addr)
+			if debug {
+				debug.Printf("addr:%d\n", serverIndex)
+			}
 			return
 		}
 	}
+
 	const baseFailCnt = 20
 	n := len(servers.srvCipher)
 	skipped := make([]int, 0)
@@ -339,16 +343,25 @@ func handleConnection(conn net.Conn) {
 	debug.Println("closed connection to", addr)
 }
 
-func updateDispatcherConfig() {
-	debug.Println("loading dispatcher config")
-	dispatcher, _= ss.ParseDispatcherConfig(path.Join(os.Args[0], "dispatcher.json"))
+func updateDispatcherConfig(config *ss.Config) {
+	var err error
+	dispatcher, err = config.GetServerDispatcher()
+	if err != nil {
+		if debug {
+			debug.Printf("load dispatcher config %s:%s", err.Error())
+		}
+	} else {
+		if debug {
+		}
+	}
+
 }
 func waitSignal() {
 	var sigChan = make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
 	for sig := range sigChan {
 		if sig == syscall.SIGHUP {
-			updateDispatcherConfig()
+
 		} else {
 			// is this going to happen?
 			log.Printf("caught signal %v, exit", sig)
@@ -445,7 +458,7 @@ func main() {
 	}
 
 	parseServerConfig(config)
-	updateDispatcherConfig()
+	updateDispatcherConfig(config)
 	go waitSignal()
 
 	run(cmdLocal + ":" + strconv.Itoa(config.LocalPort))

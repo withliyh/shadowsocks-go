@@ -16,7 +16,11 @@ import (
 	"reflect"
 	"time"
 	"strings"
+	"net"
+	"github.com/pmezard/adblock/adblock"
+	"strconv"
 )
+
 
 type Config struct {
 	Server     interface{} `json:"server"`
@@ -31,47 +35,11 @@ type Config struct {
 	Timeout      int               `json:"timeout"`
 
 	// following options are only used by client
+	ServerRouter [][]string	`json:"server_route"`
 
 	// The order of servers in the client config is significant, so use array
 	// instead of map to preserve the order.
 	ServerPassword [][]string `json:"server_password"`
-}
-
-type Dispatcher struct {
-	SwitchTable map[string]int `json:"dispatcher"`
-}
-
-func (dispatcher *Dispatcher) GetServerIndex(addr string) (idx int) {
-	if dispatcher.SwitchTable == nil {
-		return -1
-	}
-	host := strings.Split(addr, ":")
-	if len(host) > 0 {
-		addr = host[0]
-	}
-	idx, ok := dispatcher.SwitchTable[addr]
-	if !ok {
-		return -1
-	}
-	return
-}
-
-func ParseDispatcherConfig(path string) (dispatcher *Dispatcher, err error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	data, err := ioutil.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-
-	dispatcher = &Dispatcher{}
-	if err = json.Unmarshal(data, dispatcher); err != nil {
-		return nil, err
-	}
-
-	return
 }
 
 var readTimeout time.Duration
@@ -171,3 +139,100 @@ func UpdateConfig(old, new *Config) {
 	old.Timeout = new.Timeout
 	readTimeout = time.Duration(old.Timeout) * time.Second
 }
+
+type Dispatcher struct {
+	Matcher []*adblock.RuleMatcher
+	ServerRouter [][]string
+}
+
+func (dispatcher *Dispatcher) GetServerIndex(addr string) (idx int) {
+	if dispatcher == nil || dispatcher.Matcher == nil {
+		fmt.Printf("dispatcher is disable\n")
+		return -1
+	}
+	host, _ ,_ := net.SplitHostPort(addr)
+	rq := adblock.Request{
+		URL : host,
+		Domain:host,
+	}
+	for i, s := range dispatcher.Matcher  {
+		if s == nil {
+			continue
+		}
+		matched, _, err := s.Match(&rq)
+		if err != nil {
+			fmt.Printf("match error: %s\n", err.Error())
+			continue
+		}
+		if matched {
+			idxStr := dispatcher.ServerRouter[i][1]
+			idx, err = strconv.Atoi(idxStr)
+			if err != nil {
+				fmt.Printf("strconv error:%s\n", err.Error())
+				continue
+			}
+			fmt.Printf("match success: %d:%s\n", idx, host)
+			return
+		}
+	}
+	fmt.Printf("no match\n")
+	return -1
+}
+
+func (config *Config) GetServerDispatcher() (dispatcher *Dispatcher, err error) {
+	if config.ServerRouter == nil {
+		return
+	}
+	dispatcher = &Dispatcher{}
+	dispatcher.ServerRouter = config.ServerRouter
+	serverLen := len(config.ServerPassword)
+	routerLen := len(config.ServerRouter)
+	dispatcher.Matcher = make([]*adblock.RuleMatcher, routerLen, routerLen)
+	for i:=0; i<routerLen; i++ {
+		if len(config.ServerRouter[i]) < 3 {
+			fmt.Printf("server router to less param\n")
+			continue
+		}
+		routerPath := config.ServerRouter[i][0]
+		serverIdxStr := config.ServerRouter[i][1]
+		serverIdx, e := strconv.Atoi(serverIdxStr)
+		if e != nil || serverIdx > serverLen || serverIdx < 0 {
+			fmt.Printf("server router idx out range\n")
+			continue
+		}
+
+		matcher, err := getMatcher(routerPath)
+		if err != nil {
+			dispatcher.Matcher[i] = nil
+			fmt.Fprintf(os.Stderr, "get Matcher failure:%s\n", config.ServerRouter[i][0])
+		} else {
+			fmt.Fprintf(os.Stdout, "get Matcher success:%s\n", config.ServerRouter[i][0])
+			dispatcher.Matcher[i] = matcher
+		}
+	}
+
+	return
+}
+
+func getMatcher(config string) (matcher *adblock.RuleMatcher, err error) {
+	fp, err := os.Open(config)
+	if err != nil {
+		return
+	}
+	defer fp.Close()
+
+	rules, err := adblock.ParseRules(fp)
+	if err != nil {
+		return
+	}
+	matcher = adblock.NewMatcher()
+	for _, rule := range rules {
+		if err := matcher.AddRule(rule, 0); err != nil {
+			fmt.Printf("add rule error:%s\n", err)
+		} else {
+			fmt.Printf("add rule ok:%s\n", rule.Raw)
+		}
+	}
+	return
+}
+

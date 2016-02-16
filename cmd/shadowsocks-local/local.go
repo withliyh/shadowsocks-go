@@ -269,6 +269,8 @@ func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) 
 			return
 		}
 	}
+	remote, err = connectToServer(0, rawaddr, addr)
+	return
 
 	const baseFailCnt = 20
 	n := len(servers.srvCipher)
